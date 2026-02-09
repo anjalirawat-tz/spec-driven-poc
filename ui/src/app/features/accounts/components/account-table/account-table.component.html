@@ -1,0 +1,90 @@
+<div class="account-table-container">
+  <table
+    mat-table
+    [dataSource]="dataSource"
+    matSort
+    class="account-table"
+  >
+    <!-- Account Number Column -->
+    <ng-container matColumnDef="accountNumber">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Account #</th>
+      <td mat-cell *matCellDef="let account">
+        <a [routerLink]="['/accounts', account.id]" class="account-link">
+          {{ account.accountNumber }}
+        </a>
+      </td>
+    </ng-container>
+
+    <!-- Name Column -->
+    <ng-container matColumnDef="name">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Name</th>
+      <td mat-cell *matCellDef="let account">
+        {{ account.name }}
+      </td>
+    </ng-container>
+
+    <!-- Type Column -->
+    <ng-container matColumnDef="type">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Type</th>
+      <td mat-cell *matCellDef="let account">
+        {{ account.type }}
+      </td>
+    </ng-container>
+
+    <!-- Status Column -->
+    <ng-container matColumnDef="status">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Status</th>
+      <td mat-cell *matCellDef="let account">
+        <app-status-badge [status]="account.status" [type]="'account'"></app-status-badge>
+      </td>
+    </ng-container>
+
+    <!-- Balance Column -->
+    <ng-container matColumnDef="currentBalance">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header class="number-column">
+        Balance
+      </th>
+      <td mat-cell *matCellDef="let account" class="number-column">
+        {{ account.currentBalance | currencyFormat }}
+      </td>
+    </ng-container>
+
+    <!-- Created Date Column -->
+    <ng-container matColumnDef="createdAt">
+      <th mat-header-cell *matHeaderCellDef mat-sort-header>Created</th>
+      <td mat-cell *matCellDef="let account">
+        {{ account.createdAt | dateFormat }}
+      </td>
+    </ng-container>
+
+    <!-- Actions Column -->
+    <ng-container matColumnDef="actions">
+      <th mat-header-cell *matHeaderCellDef>Actions</th>
+      <td mat-cell *matCellDef="let account">
+        <button
+          mat-icon-button
+          [routerLink]="['/accounts', account.id]"
+          matTooltip="View details"
+        >
+          <mat-icon>visibility</mat-icon>
+        </button>
+      </td>
+    </ng-container>
+
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr
+      mat-row
+      *matRowDef="let row; columns: displayedColumns"
+      class="account-row"
+    ></tr>
+  </table>
+
+  <mat-paginator
+    [length]="totalCount"
+    [pageSize]="pageSize"
+    [pageIndex]="pageIndex"
+    [pageSizeOptions]="[10, 25, 50, 100]"
+    (page)="onPageChange($event)"
+    showFirstLastButtons
+  ></mat-paginator>
+</div>

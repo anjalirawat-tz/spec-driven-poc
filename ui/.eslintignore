@@ -1,0 +1,22 @@
+# ESLint Ignore Patterns
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+out-tsc/
+.angular/
+
+# Test coverage
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.min.js
+*.d.ts

@@ -1,0 +1,23 @@
+# Prettier Ignore Patterns
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+out-tsc/
+.angular/
+
+# Test coverage
+coverage/
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated files
+*.min.js
+*.d.ts

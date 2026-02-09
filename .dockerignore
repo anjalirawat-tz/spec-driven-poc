@@ -1,0 +1,46 @@
+# .NET build artifacts
+**/bin/
+**/obj/
+**/out/
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+**/*.md
+!README.md
+
+# Docker files
+**/Dockerfile*
+**/docker-compose*
+.dockerignore
+
+# Tests
+**/tests/
+**/*.Tests/
+**/TestResults/
+
+# Environment
+.env*
+!.env.example
+
+# Logs
+**/*.log
+**/logs/
+
+# Packages
+**/packages/
+**/*.nupkg
+
+# Database files
+**/*.db
+**/*.sqlite
+
+# OS files
+.DS_Store
+Thumbs.db

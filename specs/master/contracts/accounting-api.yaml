@@ -1,0 +1,960 @@
+openapi: 3.0.3
+info:
+  title: Dual-Entry Accounting & Invoicing API
+  description: |
+    Financial system of record for ride-based billing. Provides double-entry ledger,
+    account management, and invoice generation capabilities.
+    
+    **Multi-Tenancy**: All requests require `X-Tenant-ID` header for tenant isolation.
+    
+    **Idempotency**: POST operations for charges and payments use natural idempotency
+    keys (Ride ID, Payment Reference ID) to ensure exactly-once processing.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api-support@example.com
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production
+  - url: https://api-staging.example.com/v1
+    description: Staging
+  - url: http://localhost:5000/v1
+    description: Local development
+
+tags:
+  - name: Accounts
+    description: Account management operations
+  - name: Ledger
+    description: Ledger transaction recording (charges and payments)
+  - name: Invoices
+    description: Invoice generation and retrieval
+  - name: Health
+    description: Service health and readiness checks
+
+security:
+  - BearerAuth: []
+  - TenantHeader: []
+
+paths:
+  # ============================================================
+  # HEALTH ENDPOINTS
+  # ============================================================
+  
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns service health status (liveness probe)
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: string
+                    format: date-time
+  
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: Returns service readiness (can accept traffic)
+      operationId: getReadiness
+      security: []
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: connected
+
+  # ============================================================
+  # ACCOUNT ENDPOINTS
+  # ============================================================
+  
+  /accounts:
+    post:
+      tags: [Accounts]
+      summary: Create account
+      description: Creates a new account for an organization or individual
+      operationId: createAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Account created successfully
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of created account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    
+    get:
+      tags: [Accounts]
+      summary: List accounts
+      description: Retrieves all accounts for the tenant with pagination
+      operationId: listAccounts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Active, Inactive]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [Organization, Individual]
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /accounts/{accountId}:
+    get:
+      tags: [Accounts]
+      summary: Get account details
+      description: Retrieves account information including current balance
+      operationId: getAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    
+    patch:
+      tags: [Accounts]
+      summary: Update account
+      description: Updates account status or details
+      operationId: updateAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountRequest'
+      responses:
+        '200':
+          description: Account updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/{accountId}/balance:
+    get:
+      tags: [Accounts]
+      summary: Get account balance
+      description: Retrieves current balance computed from ledger
+      operationId: getAccountBalance
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - name: asOfDate
+          in: query
+          description: Compute balance as of specific date (defaults to now)
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Account balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountBalanceResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/{accountId}/statement:
+    get:
+      tags: [Accounts]
+      summary: Get account statement
+      description: Retrieves transaction history for date range
+      operationId: getAccountStatement
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - name: startDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Account statement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountStatementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # LEDGER ENDPOINTS
+  # ============================================================
+  
+  /ledger/charges:
+    post:
+      tags: [Ledger]
+      summary: Record ride charge
+      description: |
+        Records a ride service charge using double-entry bookkeeping.
+        Idempotent using Ride ID as key.
+        
+        **Ledger Entries Created**:
+        - Debit: Accounts Receivable (increases balance owed)
+        - Credit: Service Revenue (records revenue)
+      operationId: recordRideCharge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordRideChargeRequest'
+      responses:
+        '201':
+          description: Charge recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransactionResponse'
+        '200':
+          description: Charge already recorded (idempotent response)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ledger/payments:
+    post:
+      tags: [Ledger]
+      summary: Record payment received
+      description: |
+        Records a payment received using double-entry bookkeeping.
+        Idempotent using Payment Reference ID as key.
+        
+        **Ledger Entries Created**:
+        - Debit: Cash/Bank (increases cash assets)
+        - Credit: Accounts Receivable (decreases balance owed)
+      operationId: recordPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentRequest'
+      responses:
+        '201':
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransactionResponse'
+        '200':
+          description: Payment already recorded (idempotent response)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransactionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /ledger/transactions/{transactionId}:
+    get:
+      tags: [Ledger]
+      summary: Get ledger transaction
+      description: Retrieves a specific ledger transaction with all entries
+      operationId: getLedgerTransaction
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerTransactionDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # INVOICE ENDPOINTS
+  # ============================================================
+  
+  /invoices:
+    post:
+      tags: [Invoices]
+      summary: Generate invoice
+      description: |
+        Generates an invoice for an account based on date range or specific ride IDs.
+        Queries ledger for charges and payments, creates immutable invoice.
+      operationId: generateInvoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice generated
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URI of generated invoice
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Account not found
+    
+    get:
+      tags: [Invoices]
+      summary: List invoices
+      description: Retrieves invoices with filtering and pagination
+      operationId: listInvoices
+      parameters:
+        - name: accountId
+          in: query
+          description: Filter by account
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          description: Filter by issue date range (start)
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: Filter by issue date range (end)
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+
+  /invoices/{invoiceId}:
+    get:
+      tags: [Invoices]
+      summary: Get invoice
+      description: Retrieves full invoice details including line items
+      operationId: getInvoice
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Invoice details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetailResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ============================================================
+# COMPONENTS
+# ============================================================
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    
+    TenantHeader:
+      type: apiKey
+      in: header
+      name: X-Tenant-ID
+      description: Tenant identifier for multi-tenant isolation
+
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      description: Account unique identifier
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    # ========== Account Schemas ==========
+    
+    CreateAccountRequest:
+      type: object
+      required:
+        - accountNumber
+        - name
+        - type
+      properties:
+        accountNumber:
+          type: string
+          maxLength: 50
+          example: "ACC-ORG-001"
+        name:
+          type: string
+          maxLength: 200
+          example: "St. Mary's Rehabilitation Center"
+        type:
+          type: string
+          enum: [Organization, Individual]
+          example: Organization
+        metadata:
+          type: object
+          description: Optional additional information
+          additionalProperties: true
+    
+    UpdateAccountRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Active, Inactive]
+        name:
+          type: string
+          maxLength: 200
+    
+    AccountResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountNumber:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [Organization, Individual]
+        status:
+          type: string
+          enum: [Active, Inactive]
+        currencyCode:
+          type: string
+          example: USD
+        createdAt:
+          type: string
+          format: date-time
+    
+    AccountDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/AccountResponse'
+        - type: object
+          properties:
+            currentBalance:
+              type: number
+              format: decimal
+              description: Computed from ledger (positive = owed, negative = overpayment)
+              example: 1250.75
+            totalCharges:
+              type: number
+              format: decimal
+              example: 2500.00
+            totalPayments:
+              type: number
+              format: decimal
+              example: 1249.25
+    
+    AccountListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccountResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationMetadata'
+    
+    AccountBalanceResponse:
+      type: object
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        accountNumber:
+          type: string
+        currentBalance:
+          type: number
+          format: decimal
+        asOfDate:
+          type: string
+          format: date-time
+    
+    AccountStatementResponse:
+      type: object
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        accountNumber:
+          type: string
+        accountName:
+          type: string
+        period:
+          type: object
+          properties:
+            startDate:
+              type: string
+              format: date
+            endDate:
+              type: string
+              format: date
+        openingBalance:
+          type: number
+          format: decimal
+        closingBalance:
+          type: number
+          format: decimal
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatementLineItem'
+    
+    StatementLineItem:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date-time
+        description:
+          type: string
+        transactionType:
+          type: string
+          enum: [RideCharge, PaymentReceived]
+        debit:
+          type: number
+          format: decimal
+        credit:
+          type: number
+          format: decimal
+        balance:
+          type: number
+          format: decimal
+          description: Running balance after this transaction
+
+    # ========== Ledger Schemas ==========
+    
+    RecordRideChargeRequest:
+      type: object
+      required:
+        - rideId
+        - accountId
+        - fareAmount
+        - serviceDate
+      properties:
+        rideId:
+          type: string
+          maxLength: 100
+          description: Idempotency key
+          example: "RIDE-20260209-001"
+        accountId:
+          type: string
+          format: uuid
+        fareAmount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 45.50
+        serviceDate:
+          type: string
+          format: date-time
+          description: When ride occurred
+        metadata:
+          type: object
+          description: Optional ride details (fleetId, route, etc.)
+          additionalProperties: true
+    
+    RecordPaymentRequest:
+      type: object
+      required:
+        - paymentReferenceId
+        - accountId
+        - amount
+        - paymentDate
+      properties:
+        paymentReferenceId:
+          type: string
+          maxLength: 100
+          description: Idempotency key from payment processor
+          example: "PAY-STRIPE-ch_abc123"
+        accountId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 100.00
+        paymentDate:
+          type: string
+          format: date-time
+        paymentMode:
+          type: string
+          example: "CreditCard"
+          description: Optional payment method
+    
+    LedgerTransactionResponse:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        transactionType:
+          type: string
+          enum: [RideCharge, PaymentReceived]
+        idempotencyKey:
+          type: string
+        transactionDate:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    
+    LedgerTransactionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/LedgerTransactionResponse'
+        - type: object
+          properties:
+            description:
+              type: string
+            metadata:
+              type: object
+              additionalProperties: true
+            entries:
+              type: array
+              items:
+                $ref: '#/components/schemas/LedgerEntryResponse'
+    
+    LedgerEntryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+        ledgerAccountType:
+          type: string
+          enum: [AccountsReceivable, ServiceRevenue, Cash, Bank]
+        debit:
+          type: number
+          format: decimal
+        credit:
+          type: number
+          format: decimal
+        description:
+          type: string
+
+    # ========== Invoice Schemas ==========
+    
+    GenerateInvoiceRequest:
+      type: object
+      required:
+        - accountId
+        - frequency
+      properties:
+        accountId:
+          type: string
+          format: uuid
+        frequency:
+          type: string
+          enum: [PerRide, Daily, Weekly, Monthly]
+        billingPeriodStart:
+          type: string
+          format: date
+          description: Required unless frequency=PerRide
+        billingPeriodEnd:
+          type: string
+          format: date
+          description: Required unless frequency=PerRide
+        rideIds:
+          type: array
+          items:
+            type: string
+          description: Required if frequency=PerRide
+          example: ["RIDE-001", "RIDE-002"]
+    
+    InvoiceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoiceNumber:
+          type: string
+          example: "INV-2026-02-001"
+        accountId:
+          type: string
+          format: uuid
+        frequency:
+          type: string
+          enum: [PerRide, Daily, Weekly, Monthly]
+        billingPeriodStart:
+          type: string
+          format: date
+        billingPeriodEnd:
+          type: string
+          format: date
+        issueDate:
+          type: string
+          format: date-time
+        subtotal:
+          type: number
+          format: decimal
+        paymentsApplied:
+          type: number
+          format: decimal
+        outstandingBalance:
+          type: number
+          format: decimal
+        status:
+          type: string
+          enum: [Draft, Issued, Paid, Void]
+    
+    InvoiceDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/InvoiceResponse'
+        - type: object
+          properties:
+            account:
+              type: object
+              properties:
+                accountNumber:
+                  type: string
+                name:
+                  type: string
+            lineItems:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceLineItemResponse'
+    
+    InvoiceLineItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        serviceDate:
+          type: string
+          format: date-time
+        description:
+          type: string
+          example: "Ride RIDE-001: 123 Main St to 456 Oak Ave"
+        rideId:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        ledgerEntryId:
+          type: string
+          format: uuid
+          description: Traceability to source ledger entry
+    
+    InvoiceListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationMetadata'
+
+    # ========== Common Schemas ==========
+    
+    PaginationMetadata:
+      type: object
+      properties:
+        currentPage:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+        totalPages:
+          type: integer
+    
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: INVALID_REQUEST
+            message:
+              type: string
+              example: Account number already exists
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  issue:
+                    type: string
+        traceId:
+          type: string
+          description: Correlation ID for tracing
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    Unauthorized:
+      description: Authentication required or failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    Conflict:
+      description: Resource already exists or conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
